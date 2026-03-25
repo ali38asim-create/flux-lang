@@ -66,15 +66,11 @@
     'blockquote','cite','pre','code','kbd','samp','var','abbr','address','area','map','param',
     'object','embed','picture','source','track','portal'
   ]);
-  // Allow any tag name, but ensure whitelisted tags get proper handling
-  function normalizeTag(tag) {
-    // Allow any custom tag, just pass through
-    return tag;
-  }
+  function normalizeTag(tag) { return tag; }
 
   class FluxComponent {
     constructor(def, props, parentContext) {
-      this.def = def;           // parsed definition
+      this.def = def;
       this.props = props || {};
       this.state = {};
       this.context = parentContext || {};
@@ -83,7 +79,6 @@
       this.container = null;
       this._updateScheduled = false;
 
-      // Initialize state from 'state' declarations
       if (def.state) {
         Object.entries(def.state).forEach(([key, initialVal]) => {
           const signal = new Signal(initialVal);
@@ -104,14 +99,12 @@
       this._updateScheduled = false;
       const newVNode = this.render();
       if (this.container && this.vnode) {
-        // Simple replace – in a full impl you'd diff, but this works for now
         render(newVNode, this.container);
         this.vnode = newVNode;
       }
     }
 
     render() {
-      // Execute the component's body (a list of statements/nodes)
       return this._executeBlock(this.def.body, {
         props: this.props,
         state: this.state,
@@ -151,13 +144,10 @@
           }
           return null;
         case 'component':
-          // Recursively render a sub-component
           const subDef = this.def.components[node.name];
           if (subDef) {
             const subProps = node.props ? this._evalProps(node.props, ctx) : {};
             const subComp = new FluxComponent(subDef, subProps, ctx);
-            // We need a placeholder; but we'll return a function that renders
-            // Actually we can render it directly as a vnode
             return subComp.render();
           }
           console.warn(`Component "${node.name}" not found`);
@@ -184,7 +174,6 @@
       const result = {};
       for (let [key, val] of Object.entries(attrs)) {
         if (typeof val === 'string' && val.includes('{')) {
-          // Simple expression interpolation
           result[key] = this._interpolateString(val, ctx);
         } else if (typeof val === 'object' && val.type === 'expr') {
           result[key] = this._evalExpr(val, ctx);
@@ -202,13 +191,10 @@
     }
 
     _evalExpr(expr, ctx) {
-      // Safe evaluation of expressions (using Function constructor for simplicity)
-      // We'll create a sandbox with ctx variables.
       const vars = { ...ctx, ...ctx.props, ...ctx.state };
       const keys = Object.keys(vars);
       const values = keys.map(k => vars[k]);
       try {
-        // Create a function that evaluates the expression
         const fn = new Function(...keys, `return (${expr});`);
         return fn(...values);
       } catch (err) {
@@ -221,7 +207,6 @@
   // ----- Parser for Flux language -----
   function parseFlux(source) {
     const lines = source.split('\n');
-    // Simple state machine to parse components and top-level blocks
     const components = {};
     let currentComponent = null;
     let currentBlock = [];
@@ -230,8 +215,6 @@
     function addNode(node) {
       if (currentComponent) {
         currentComponent.body.push(node);
-      } else {
-        // Top-level nodes are ignored for now; only components matter
       }
     }
 
@@ -241,7 +224,6 @@
       const trimmed = line.trim();
       if (trimmed === '' || trimmed.startsWith('//')) continue;
 
-      // Check for component definition
       const compMatch = trimmed.match(/^component\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\(([^)]*)\))?\s*{/);
       if (compMatch) {
         const name = compMatch[1];
@@ -259,29 +241,25 @@
         continue;
       }
 
-      // Check for state declaration
       const stateMatch = trimmed.match(/^state\s*{\s*([^}]+)\s*}/);
       if (stateMatch && currentComponent) {
         const stateDef = stateMatch[1];
-        // Parse key-value pairs separated by commas
         const pairs = stateDef.split(',').map(p => p.trim());
         pairs.forEach(pair => {
           const [key, val] = pair.split(':').map(s => s.trim());
           if (key && val) {
-            // Evaluate initial value
             let initVal = val;
             if (val.match(/^['"].*['"]$/)) initVal = val.slice(1, -1);
             else if (!isNaN(Number(val))) initVal = Number(val);
             else if (val === 'true') initVal = true;
             else if (val === 'false') initVal = false;
-            else initVal = val; // treat as string
+            else initVal = val;
             currentComponent.state[key] = initVal;
           }
         });
         continue;
       }
 
-      // For, If, Element parsing
       const ifMatch = trimmed.match(/^if\s+(.+)\s*{/);
       const forMatch = trimmed.match(/^for\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+in\s+(.+)\s*{/);
       const elementMatch = trimmed.match(/^([a-zA-Z][a-zA-Z0-9-]*)(?:\s+\(([^)]*)\))?(?:\s+(.*))?/);
@@ -305,7 +283,6 @@
         const tag = elementMatch[1];
         const attrStr = elementMatch[2] || '';
         const text = elementMatch[3] || '';
-        // Parse attributes
         const attrs = {};
         const attrRegex = /([a-zA-Z][a-zA-Z0-9-]*)\s*=\s*"([^"]*)"|([a-zA-Z][a-zA-Z0-9-]*)\s*=\s*'([^']*)'|([a-zA-Z][a-zA-Z0-9-]*)\s*=\s*{([^}]+)}|([a-zA-Z][a-zA-Z0-9-]*)/g;
         let match;
@@ -324,19 +301,15 @@
         continue;
       }
 
-      // Handle closing braces
       if (trimmed === '}') {
         if (indentStack.length > 0) {
           indentStack.pop();
-          // Find parent block
           let parent = currentComponent.body;
-          // ... complex, but for now assume proper nesting
           currentBlock = indentStack.length > 0 ? parent : currentComponent.body;
         }
         continue;
       }
     }
-
     return components;
   }
 
@@ -379,13 +352,12 @@
       const vnode = instance.render();
       render(vnode, this.shadowRoot);
       instance.vnode = vnode;
-      // store for potential future updates
       this._instance = instance;
     }
   }
 
+  // ✅ FIX: Define the custom element with a hyphenated name
   customElements.define('flux-connect', FluxConnectElement);
 
-  // Expose runtime globally for debugging
   window.Flux = { h, render, parseFlux, FluxComponent };
 })();
