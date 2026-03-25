@@ -1,0 +1,22 @@
+{
+  "name": "flux-runtime",
+  "description": "The complete Flux browser runtime.",
+  "keywords": ["flux", "runtime", "frontend"],
+  "author": "YOUR_GITHUB_USERNAME",
+  "license": "MIT",
+  "homepage": "https://github.com/YOUR_GITHUB_USERNAME/flux-runtime",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/YOUR_GITHUB_USERNAME/flux-runtime.git"
+  },
+  "autoupdate": {
+    "source": "npm",
+    "target": "flux-runtime",
+    "fileMap": [
+      {
+        "basePath": "",
+        "files": ["flux-runtime.js"]
+      }
+    ]
+  }
+}
