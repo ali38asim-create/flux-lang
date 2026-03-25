@@ -1,6 +1,5 @@
 // flux-runtime.js – Complete Flux browser runtime
 (function() {
-    // ---------- Virtual DOM ----------
     function createElement(vnode) {
         if (typeof vnode === 'string') return document.createTextNode(vnode);
         const el = document.createElement(vnode.type);
@@ -26,7 +25,6 @@
         container.appendChild(createElement(vnode));
     }
 
-    // ---------- Tag Registry (10M+ tags via dynamic mapping) ----------
     const tagMap = new Map();
     const basicTags = [
         'div','span','p','a','button','input','form','ul','li','h1','h2','h3','h4','h5','h6',
@@ -34,19 +32,14 @@
     ];
     basicTags.forEach(tag => tagMap.set(tag, tag));
     for (let i = 1; i <= 6; i++) tagMap.set(`f${i}`, `h${i}`);
-    tagMap.set('heading', 'h1');
-    tagMap.set('title', 'h1');
-    tagMap.set('button', 'button');
-    tagMap.set('btn', 'button');
+    tagMap.set('heading','h1'); tagMap.set('title','h1'); tagMap.set('button','button'); tagMap.set('btn','button');
 
     function resolveTag(tagName) {
         if (tagMap.has(tagName)) return tagMap.get(tagName);
-        // unknown tags are treated as custom elements or plain tags
         tagMap.set(tagName, tagName);
         return tagName;
     }
 
-    // ---------- Flux Parser ----------
     function parseLine(line) {
         line = line.trim();
         if (line === '') return null;
@@ -69,7 +62,6 @@
         const lines = source.split('\n');
         const stack = [];
         let root = null, currentParent = null, lastIndent = 0;
-
         for (let line of lines) {
             const indent = line.search(/\S|$/);
             const trimmed = line.trim();
@@ -119,8 +111,7 @@
         return root;
     }
 
-    // ---------- <connect> Custom Element ----------
-    class ConnectElement extends HTMLElement {
+    class FluxConnectElement extends HTMLElement {
         static get observedAttributes() { return ['src', 'mode', 'flux']; }
         constructor() { super(); this.attachShadow({ mode: 'open' }); }
         async connectedCallback() { this.load(); }
@@ -155,5 +146,5 @@
             }
         }
     }
-    customElements.define('connect', ConnectElement);
+    customElements.define('flux-connect', FluxConnectElement);
 })();
