@@ -1,4 +1,5 @@
-// flux-runtime.js – Full Flux runtime with reactive components, state, loops, conditionals, and styling
+// flux-runtime.js – Complete Flux runtime with reactive components, state, loops, conditionals, styling
+// FIX: Custom element name is now "flux-connect" (must contain a hyphen)
 (function() {
   // ----- Virtual DOM helpers -----
   function h(type, props, ...children) {
@@ -332,7 +333,8 @@
           const response = await fetch(src);
           fluxCode = await response.text();
         } catch (err) {
-          this.shadowRoot.innerHTML = `<div style="color:red">Error loading Flux: ${err.message}</div>`;
+          console.error('Error loading Flux:', err);
+          this.shadowRoot.innerHTML = `<div style="color:red">Error: ${err.message}</div>`;
           return;
         }
       } else {
