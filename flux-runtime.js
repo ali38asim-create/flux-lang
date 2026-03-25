@@ -1,6 +1,26 @@
-// flux-runtime.js – Complete Flux runtime with reactive components, state, loops, conditionals, styling
-// FIX: Custom element name is now "flux-connect" (must contain a hyphen)
+// flux-runtime.js – Complete Flux runtime with tag shortcuts and reactive features
 (function() {
+  // ----- Tag mapping (shortcuts) -----
+  const tagMap = new Map();
+  const basicTags = [
+    'div','span','p','a','button','input','form','ul','li','h1','h2','h3','h4','h5','h6',
+    'img','table','tr','td','th','section','article','header','footer','nav','main','aside',
+    'svg','circle','rect','path','g','defs','line','polygon','text','tspan'
+  ];
+  basicTags.forEach(tag => tagMap.set(tag, tag));
+  for (let i = 1; i <= 6; i++) tagMap.set(`f${i}`, `h${i}`);
+  tagMap.set('heading','h1');
+  tagMap.set('title','h1');
+  tagMap.set('button','button');
+  tagMap.set('btn','button');
+
+  function resolveTag(tagName) {
+    if (tagMap.has(tagName)) return tagMap.get(tagName);
+    // allow any custom tag name (for web components, etc.)
+    tagMap.set(tagName, tagName);
+    return tagName;
+  }
+
   // ----- Virtual DOM helpers -----
   function h(type, props, ...children) {
     return { type, props: props || {}, children: children.flat() };
@@ -39,7 +59,7 @@
     container.appendChild(createElement(vnode));
   }
 
-  // ----- Reactive state (simple signals) -----
+  // ----- Reactive state (signals) -----
   class Signal {
     constructor(value) {
       this.value = value;
@@ -55,169 +75,13 @@
     subscribe(fn) { this.listeners.push(fn); }
   }
 
-  // ----- Flux Compiler & Runtime -----
-  const TAG_WHITELIST = new Set([
-    'div','span','p','a','button','input','form','ul','li','h1','h2','h3','h4','h5','h6',
-    'img','table','tr','td','th','section','article','header','footer','nav','main','aside',
-    'svg','circle','rect','path','g','defs','line','polygon','text','tspan',
-    'style','script','link','meta','title','body','head','html','br','hr','label','select',
-    'option','textarea','canvas','iframe','video','audio','source','track','details','summary',
-    'dialog','menu','menuitem','fieldset','legend','datalist','output','progress','meter',
-    'time','mark','ruby','rt','rp','bdi','bdo','wbr','ins','del','figure','figcaption',
-    'blockquote','cite','pre','code','kbd','samp','var','abbr','address','area','map','param',
-    'object','embed','picture','source','track','portal'
-  ]);
-  function normalizeTag(tag) { return tag; }
-
-  class FluxComponent {
-    constructor(def, props, parentContext) {
-      this.def = def;
-      this.props = props || {};
-      this.state = {};
-      this.context = parentContext || {};
-      this.listeners = [];
-      this.vnode = null;
-      this.container = null;
-      this._updateScheduled = false;
-
-      if (def.state) {
-        Object.entries(def.state).forEach(([key, initialVal]) => {
-          const signal = new Signal(initialVal);
-          this.state[key] = signal;
-          signal.subscribe(() => this.scheduleUpdate());
-        });
-      }
-    }
-
-    scheduleUpdate() {
-      if (!this._updateScheduled) {
-        this._updateScheduled = true;
-        Promise.resolve().then(() => this.update());
-      }
-    }
-
-    update() {
-      this._updateScheduled = false;
-      const newVNode = this.render();
-      if (this.container && this.vnode) {
-        render(newVNode, this.container);
-        this.vnode = newVNode;
-      }
-    }
-
-    render() {
-      return this._executeBlock(this.def.body, {
-        props: this.props,
-        state: this.state,
-        context: this.context,
-        component: this
-      });
-    }
-
-    _executeBlock(block, ctx) {
-      let results = [];
-      for (let item of block) {
-        const res = this._executeNode(item, ctx);
-        if (res !== undefined) results.push(res);
-      }
-      return results.length === 1 ? results[0] : h('div', {}, results);
-    }
-
-    _executeNode(node, ctx) {
-      switch (node.type) {
-        case 'element':
-          return this._executeElement(node, ctx);
-        case 'if':
-          const condition = this._evalExpr(node.condition, ctx);
-          if (condition) {
-            return this._executeBlock(node.then, ctx);
-          } else if (node.else) {
-            return this._executeBlock(node.else, ctx);
-          }
-          return null;
-        case 'for':
-          const items = this._evalExpr(node.iterable, ctx);
-          if (Array.isArray(items)) {
-            return items.map((item, index) => {
-              const loopCtx = { ...ctx, item, index };
-              return this._executeBlock(node.body, loopCtx);
-            });
-          }
-          return null;
-        case 'component':
-          const subDef = this.def.components[node.name];
-          if (subDef) {
-            const subProps = node.props ? this._evalProps(node.props, ctx) : {};
-            const subComp = new FluxComponent(subDef, subProps, ctx);
-            return subComp.render();
-          }
-          console.warn(`Component "${node.name}" not found`);
-          return null;
-        case 'text':
-          return String(this._evalExpr(node.value, ctx));
-        default:
-          return null;
-      }
-    }
-
-    _executeElement(el, ctx) {
-      const tag = normalizeTag(el.tag);
-      const props = this._evalProps(el.attrs, ctx);
-      const children = [];
-      for (let child of el.children) {
-        const res = this._executeNode(child, ctx);
-        if (res !== undefined) children.push(res);
-      }
-      return h(tag, props, children);
-    }
-
-    _evalProps(attrs, ctx) {
-      const result = {};
-      for (let [key, val] of Object.entries(attrs)) {
-        if (typeof val === 'string' && val.includes('{')) {
-          result[key] = this._interpolateString(val, ctx);
-        } else if (typeof val === 'object' && val.type === 'expr') {
-          result[key] = this._evalExpr(val, ctx);
-        } else {
-          result[key] = val;
-        }
-      }
-      return result;
-    }
-
-    _interpolateString(str, ctx) {
-      return str.replace(/\{([^}]+)\}/g, (_, expr) => {
-        return String(this._evalExpr(expr.trim(), ctx));
-      });
-    }
-
-    _evalExpr(expr, ctx) {
-      const vars = { ...ctx, ...ctx.props, ...ctx.state };
-      const keys = Object.keys(vars);
-      const values = keys.map(k => vars[k]);
-      try {
-        const fn = new Function(...keys, `return (${expr});`);
-        return fn(...values);
-      } catch (err) {
-        console.error('Expression evaluation error:', expr, err);
-        return null;
-      }
-    }
-  }
-
-  // ----- Parser for Flux language -----
+  // ----- Flux Parser (supports components, state, loops, conditionals) -----
   function parseFlux(source) {
     const lines = source.split('\n');
     const components = {};
     let currentComponent = null;
     let currentBlock = [];
     let indentStack = [];
-
-    function addNode(node) {
-      if (currentComponent) {
-        currentComponent.body.push(node);
-      }
-    }
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -314,6 +178,142 @@
     return components;
   }
 
+  // ----- FluxComponent (executes parsed AST) -----
+  class FluxComponent {
+    constructor(def, props, parentContext) {
+      this.def = def;
+      this.props = props || {};
+      this.state = {};
+      this.context = parentContext || {};
+      this.vnode = null;
+      this.container = null;
+      this._updateScheduled = false;
+
+      if (def.state) {
+        Object.entries(def.state).forEach(([key, initialVal]) => {
+          const signal = new Signal(initialVal);
+          this.state[key] = signal;
+          signal.subscribe(() => this.scheduleUpdate());
+        });
+      }
+    }
+
+    scheduleUpdate() {
+      if (!this._updateScheduled) {
+        this._updateScheduled = true;
+        Promise.resolve().then(() => this.update());
+      }
+    }
+
+    update() {
+      this._updateScheduled = false;
+      const newVNode = this.render();
+      if (this.container && this.vnode) {
+        render(newVNode, this.container);
+        this.vnode = newVNode;
+      }
+    }
+
+    render() {
+      return this._executeBlock(this.def.body, {
+        props: this.props,
+        state: this.state,
+        context: this.context,
+        component: this
+      });
+    }
+
+    _executeBlock(block, ctx) {
+      let results = [];
+      for (let item of block) {
+        const res = this._executeNode(item, ctx);
+        if (res !== undefined) results.push(res);
+      }
+      return results.length === 1 ? results[0] : h('div', {}, results);
+    }
+
+    _executeNode(node, ctx) {
+      switch (node.type) {
+        case 'element':
+          return this._executeElement(node, ctx);
+        case 'if':
+          const condition = this._evalExpr(node.condition, ctx);
+          if (condition) {
+            return this._executeBlock(node.then, ctx);
+          } else if (node.else) {
+            return this._executeBlock(node.else, ctx);
+          }
+          return null;
+        case 'for':
+          const items = this._evalExpr(node.iterable, ctx);
+          if (Array.isArray(items)) {
+            return items.map((item, index) => {
+              const loopCtx = { ...ctx, item, index };
+              return this._executeBlock(node.body, loopCtx);
+            });
+          }
+          return null;
+        case 'component':
+          const subDef = this.def.components[node.name];
+          if (subDef) {
+            const subProps = node.props ? this._evalProps(node.props, ctx) : {};
+            const subComp = new FluxComponent(subDef, subProps, ctx);
+            return subComp.render();
+          }
+          console.warn(`Component "${node.name}" not found`);
+          return null;
+        case 'text':
+          return String(this._evalExpr(node.value, ctx));
+        default:
+          return null;
+      }
+    }
+
+    _executeElement(el, ctx) {
+      const tag = resolveTag(el.tag);   // <-- apply tag mapping here
+      const props = this._evalProps(el.attrs, ctx);
+      const children = [];
+      for (let child of el.children) {
+        const res = this._executeNode(child, ctx);
+        if (res !== undefined) children.push(res);
+      }
+      return h(tag, props, children);
+    }
+
+    _evalProps(attrs, ctx) {
+      const result = {};
+      for (let [key, val] of Object.entries(attrs)) {
+        if (typeof val === 'string' && val.includes('{')) {
+          result[key] = this._interpolateString(val, ctx);
+        } else if (typeof val === 'object' && val.type === 'expr') {
+          result[key] = this._evalExpr(val.value, ctx);
+        } else {
+          result[key] = val;
+        }
+      }
+      return result;
+    }
+
+    _interpolateString(str, ctx) {
+      return str.replace(/\{([^}]+)\}/g, (_, expr) => {
+        return String(this._evalExpr(expr.trim(), ctx));
+      });
+    }
+
+    _evalExpr(expr, ctx) {
+      const vars = { ...ctx, ...ctx.props, ...ctx.state };
+      const keys = Object.keys(vars);
+      const values = keys.map(k => vars[k]);
+      try {
+        const fn = new Function(...keys, `return (${expr});`);
+        return fn(...values);
+      } catch (err) {
+        console.error('Expression evaluation error:', expr, err);
+        return null;
+      }
+    }
+  }
+
   // ----- Web Component <flux-connect> -----
   class FluxConnectElement extends HTMLElement {
     static get observedAttributes() { return ['src', 'mode', 'flux', 'component']; }
@@ -358,7 +358,7 @@
     }
   }
 
-  // ✅ FIX: Define the custom element with a hyphenated name
+  // ✅ Define with hyphenated name
   customElements.define('flux-connect', FluxConnectElement);
 
   window.Flux = { h, render, parseFlux, FluxComponent };
