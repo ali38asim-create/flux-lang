@@ -1,6 +1,7 @@
-// fluxruntime.js - OmniScript runtime v3.0 (uses <connect> tag)
+// fluxruntime.js - OmniScript (Flux) Runtime v4.0
+// Supports <connect> tags, components, reactive state, and CSS injection.
 (function() {
-    // Keyword mapping (unchanged)
+    // ========== 1. Keyword Mapping ==========
     const keywordMap = {
         'when': 'if', 'otherwise': 'else', 'orwhen': 'else if',
         'match': 'switch', 'with': 'case', 'fallback': 'default',
@@ -20,14 +21,18 @@
         'component': 'function'
     };
 
-    // Robust indentation to braces compiler (same as before)
+    // ========== 2. Compiler (OmniScript → JavaScript) ==========
     function compileOmniScript(source) {
+        // Replace keywords
         let js = source;
         for (let [omni, std] of Object.entries(keywordMap)) {
             js = js.replace(new RegExp(`\\b${omni}\\b`, 'g'), std);
         }
+
+        // Convert component declarations to functions
         js = js.replace(/^component\s+(\w+)\s*\(/gm, 'function $1(');
 
+        // Indentation to braces (robust)
         const lines = js.split('\n');
         const out = [];
         let indentStack = [0];
@@ -47,6 +52,7 @@
             }
             const trimmed = line.trim();
             const currentIndent = indentStack[indentStack.length - 1];
+
             if (indent < currentIndent) {
                 while (indent < indentStack[indentStack.length - 1]) {
                     indentStack.pop();
@@ -69,7 +75,7 @@
         return out.join('\n');
     }
 
-    // --- Component System (unchanged) ---
+    // ========== 3. Component System ==========
     let currentComponentId = 0;
     function createComponent(renderFn, props = {}) {
         const id = currentComponentId++;
@@ -77,6 +83,7 @@
         let mounted = false;
         let domNode = null;
         let scopedStyles = null;
+
         const component = {
             id, props, state,
             mount(target) {
@@ -95,6 +102,7 @@
                     styleTag.textContent = scopedStyles;
                     domNode.appendChild(styleTag);
                 }
+                // Attach event handlers and bindings
                 for (let el of domNode.querySelectorAll('*')) {
                     for (let attr of el.attributes) {
                         if (attr.name.startsWith('on')) {
@@ -126,14 +134,14 @@
     }
     window.__flux_component = (renderFn, props) => createComponent(renderFn, props);
 
-    // --- Runtime API (unchanged) ---
+    // ========== 4. DOM Helpers ==========
     let previewTarget = null;
     function setPreviewTarget(selector) {
         previewTarget = document.querySelector(selector);
-        if (!previewTarget) console.warn(`Target ${selector} not found`);
+        if (!previewTarget) console.warn(`[Flux] Preview target ${selector} not found`);
     }
     function render(template) {
-        if (!previewTarget) { console.warn('No preview target'); return; }
+        if (!previewTarget) { console.warn('[Flux] No preview target'); return; }
         let html = template.replace(/\{([^}]+)\}/g, (_, expr) => {
             try { return eval(expr); } catch(e) { return expr; }
         });
@@ -159,12 +167,15 @@
             }
         }
     }
-    function display(el) { if (previewTarget) previewTarget.appendChild(el); }
+    function display(element) {
+        if (previewTarget) previewTarget.appendChild(element);
+        else console.warn('[Flux] No preview target');
+    }
     function listen(event, target, handler) {
         const t = typeof target === 'string' ? document.querySelector(target) : target;
         if (t) t.addEventListener(event, handler);
     }
-    function style(selector, rules, scope) {
+    function style(selector, rules, scope = null) {
         let css = `${selector} { ${rules} }`;
         if (scope) css = `${selector}[data-flux-${scope}], ${selector} .data-flux-${scope} { ${rules} }`;
         const styleTag = document.createElement('style');
@@ -172,7 +183,7 @@
         document.head.appendChild(styleTag);
     }
 
-    // --- Module loader (unchanged) ---
+    // ========== 5. Module Loader ==========
     async function loadModule(url) {
         if (!url.includes('.')) url += '.flux';
         const res = await fetch(url);
@@ -184,37 +195,40 @@
     }
     window.gather = loadModule;
 
-    // --- Execute all <connect> tags (instead of script) ---
-    function runOmniScripts() {
-        // Find all <connect> elements (custom tag)
-        const connectTags = document.querySelectorAll('connect');
-        connectTags.forEach(async (tag) => {
+    // ========== 6. <connect> Tag Processor ==========
+    const processedTags = new WeakSet();
+    async function runOmniScripts() {
+        const connects = document.querySelectorAll('connect');
+        for (let tag of connects) {
+            if (processedTags.has(tag)) continue;
+            processedTags.add(tag);
             let source;
             if (tag.hasAttribute('src')) {
-                // Load external .flux file (note: requires HTTP server)
                 const response = await fetch(tag.getAttribute('src'));
                 source = await response.text();
             } else {
-                // Inline code inside <connect> tag
                 source = tag.textContent;
             }
             const jsCode = compileOmniScript(source);
             try {
                 eval(jsCode);
             } catch(e) {
-                console.error('Flux compilation error:', e);
+                console.error('[Flux] Execution error:', e);
                 console.error('Generated JS:', jsCode);
             }
-        });
+        }
     }
 
+    // Run when DOM ready and watch for dynamically added <connect> tags
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', runOmniScripts);
     } else {
         runOmniScripts();
     }
+    const observer = new MutationObserver(() => runOmniScripts());
+    observer.observe(document.body, { childList: true, subtree: true });
 
-    // Expose API globally
+    // ========== 7. Expose Public API ==========
     window.setPreviewTarget = setPreviewTarget;
     window.render = render;
     window.display = display;
