@@ -1,6 +1,6 @@
-// fluxruntime.js - OmniScript runtime v2.0 with component system
+// fluxruntime.js - OmniScript runtime v2.1 (fixed indentation handling)
 (function() {
-    // --- Keyword mapping (same as before) ---
+    // --- Keyword mapping ---
     const keywordMap = {
         'when': 'if', 'otherwise': 'else', 'orwhen': 'else if',
         'match': 'switch', 'with': 'case', 'fallback': 'default',
@@ -17,11 +17,10 @@
         'and': '&&', 'or': '||', 'not': '!',
         'identical': '===', 'equal': '==', 'distinct': '!==', 'unequal': '!=',
         'add': '+', 'subtract': '-', 'multiply': '*', 'divide': '/', 'modulo': '%', 'power': '**',
-        // New: component keyword mapping
-        'component': 'function' // component is treated as a special function
+        'component': 'function' // treat component as function
     };
 
-    // Compiler (same as before, but now also transforms component blocks)
+    // Robust indentation to braces conversion
     function compileOmniScript(source) {
         // Replace keywords
         let jsCode = source;
@@ -30,69 +29,62 @@
             jsCode = jsCode.replace(regex, std);
         }
 
-        // Transform component syntax: component Name(props) { ... } -> function Name(props) { return Component(...); }
-        // We'll detect lines starting with "component" and convert them to a wrapped function that returns a component object.
-        // This is a simplistic transformation; in a real parser we'd do AST manipulation.
+        // Convert component keyword: component Name(props) -> function Name(props)
+        // This is a simple substitution; we'll handle the component system later.
+        jsCode = jsCode.replace(/^component\s+(\w+)\s*\(/gm, 'function $1(');
+
+        // Split into lines for indentation conversion
         const lines = jsCode.split('\n');
-        const outputLines = [];
-        for (let line of lines) {
-            const trimmed = line.trim();
-            if (trimmed.startsWith('component ') && trimmed.includes('(')) {
-                // Convert to: function Name(props) { return __flux_component(function() { ... }, props); }
-                // We'll just replace 'component' with 'function' and let the runtime handle component creation.
-                line = line.replace(/^component\s+/, 'function ');
-            }
-            outputLines.push(line);
-        }
-        jsCode = outputLines.join('\n');
-
-        // Indentation to braces conversion (same as before)
-        // ... (rest of the compile function unchanged) ...
-        // (We'll keep the existing indentation conversion)
-        // For brevity, I'll reuse the same function but it's the same as earlier.
-        // Actually, we need the full compile function here. I'll copy from previous version.
-        const lines2 = jsCode.split('\n');
         const output = [];
-        const indentStack = [0];
-        let blockStack = [];
+        const indentStack = [0]; // track indentation levels
+        let pendingOpenBraces = 0; // handle multiple opens in one line
 
-        for (let i = 0; i < lines2.length; i++) {
-            let line = lines2[i];
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i];
             if (line.trim() === '') {
                 output.push('');
                 continue;
             }
 
             const indent = line.search(/\S|$/);
-            const trimmedLine = line.trim();
+            const trimmed = line.trim();
 
-            if (trimmedLine === '}' || trimmedLine === '};') {
-                indentStack.pop();
-                blockStack.pop();
+            // Skip lines that are already braces (they are part of the output)
+            if (trimmed === '}' || trimmed === '};') {
+                // Already have braces, don't add more
                 output.push(line);
                 continue;
             }
 
+            // Determine if the line introduces a block (ends with ':')
+            const endsWithColon = /:\s*$/.test(trimmed);
+            const isBlockStart = endsWithColon;
+
+            // Adjust indentation
             if (indent > indentStack[indentStack.length - 1]) {
+                // Indent increased: start a new block
                 indentStack.push(indent);
-                const lastLine = output[output.length - 1];
-                if (lastLine && !lastLine.endsWith('{')) {
-                    output.push('{');
-                    blockStack.push('{');
-                }
-                output.push(line);
+                // Add opening brace before the line
+                output.push('{');
+                pendingOpenBraces++;
             } else if (indent < indentStack[indentStack.length - 1]) {
+                // Indent decreased: close blocks
                 while (indent < indentStack[indentStack.length - 1]) {
                     indentStack.pop();
-                    const closed = blockStack.pop();
-                    if (closed === '{') output.push('}');
+                    output.push('}');
                 }
-                output.push(line);
-            } else {
-                output.push(line);
             }
+
+            // Remove trailing colon if present, but keep the rest
+            let processedLine = line;
+            if (endsWithColon) {
+                processedLine = line.replace(/:\s*$/, '');
+            }
+
+            output.push(processedLine);
         }
 
+        // Close any remaining blocks
         while (indentStack.length > 1) {
             output.push('}');
             indentStack.pop();
@@ -101,7 +93,7 @@
         return output.join('\n');
     }
 
-    // --- Component System ---
+    // --- Component System (unchanged, but ensure functions are defined) ---
     const componentRegistry = new Map();
     let currentComponentId = 0;
 
@@ -111,8 +103,6 @@
         const refs = {};
         let mounted = false;
         let domNode = null;
-
-        // Scoped CSS storage for this component
         let scopedStyles = null;
 
         const component = {
@@ -129,16 +119,14 @@
             },
             update() {
                 if (!domNode) return;
-                // Render with current state and props
                 const html = renderFn.call(component);
                 domNode.innerHTML = html;
-                // Apply scoped CSS
                 if (scopedStyles) {
                     const styleTag = document.createElement('style');
                     styleTag.textContent = scopedStyles;
                     domNode.appendChild(styleTag);
                 }
-                // Reattach event handlers
+                // Reattach event handlers and bindings
                 const allElements = domNode.querySelectorAll('*');
                 for (let el of allElements) {
                     for (let attr of el.attributes) {
@@ -151,10 +139,7 @@
                             }
                         }
                         if (attr.name === 'bind') {
-                            const binding = attr.value;
-                            const parts = binding.split(':');
-                            const targetProp = parts[0];
-                            const sourceVar = parts[1];
+                            const [targetProp, sourceVar] = attr.value.split(':');
                             el.removeAttribute(attr.name);
                             if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
                                 el.value = component.state[sourceVar];
@@ -178,14 +163,12 @@
         return component;
     }
 
-    // Register a component function (to be called by transformed component syntax)
     window.__flux_component = function(renderFn, props) {
         return createComponent(renderFn, props);
     };
 
-    // --- Enhanced render function with component support ---
+    // --- Runtime helpers ---
     let previewTarget = null;
-    let rootComponents = [];
 
     function setPreviewTarget(selector) {
         previewTarget = document.querySelector(selector);
@@ -197,7 +180,6 @@
             console.warn('No preview target. Use setPreviewTarget("#id")');
             return;
         }
-        // Simple variable interpolation
         let html = template.replace(/\{([^}]+)\}/g, (match, expr) => {
             try {
                 return eval(expr);
@@ -207,7 +189,7 @@
             }
         });
         previewTarget.innerHTML = html;
-        // Attach event handlers and bindings
+
         const allElements = previewTarget.querySelectorAll('*');
         for (let el of allElements) {
             for (let attr of el.attributes) {
@@ -220,14 +202,12 @@
                     }
                 }
                 if (attr.name === 'bind') {
-                    const binding = attr.value;
-                    const [targetProp, sourceVar] = binding.split(':');
+                    const [targetProp, sourceVar] = attr.value.split(':');
                     el.removeAttribute(attr.name);
                     if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
                         const value = eval(sourceVar);
                         el.value = value;
                         el.addEventListener('input', (e) => {
-                            // Update the variable in global scope (simplistic)
                             window[sourceVar] = e.target.value;
                         });
                     }
@@ -252,7 +232,6 @@
     function style(selector, rules, scope = null) {
         let css = `${selector} { ${rules} }`;
         if (scope) {
-            // Scope CSS to a component (by adding data-attribute)
             const attr = `data-flux-${scope}`;
             css = `${selector}[${attr}], ${selector} .${attr} { ${rules} }`;
         }
@@ -261,7 +240,7 @@
         document.head.appendChild(styleTag);
     }
 
-    // --- Module loader (unchanged) ---
+    // --- Module loader ---
     async function loadModule(url) {
         if (!url.includes('.')) url += '.flux';
         const response = await fetch(url);
@@ -289,7 +268,12 @@
                 source = script.textContent;
             }
             const jsCode = compileOmniScript(source);
-            eval(jsCode);
+            try {
+                eval(jsCode);
+            } catch(e) {
+                console.error('Flux compilation error:', e);
+                console.error('Generated JS:', jsCode);
+            }
         });
     }
 
@@ -299,7 +283,6 @@
         runOmniScripts();
     }
 
-    // Expose additional helpers
     window.setPreviewTarget = setPreviewTarget;
     window.render = render;
     window.display = display;
