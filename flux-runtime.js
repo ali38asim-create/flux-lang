@@ -1,5 +1,6 @@
-// fluxruntime.js - OmniScript runtime v2.2 (robust indentation compiler)
+// fluxruntime.js - OmniScript runtime v3.0 (uses <connect> tag)
 (function() {
+    // Keyword mapping (unchanged)
     const keywordMap = {
         'when': 'if', 'otherwise': 'else', 'orwhen': 'else if',
         'match': 'switch', 'with': 'case', 'fallback': 'default',
@@ -19,20 +20,17 @@
         'component': 'function'
     };
 
+    // Robust indentation to braces compiler (same as before)
     function compileOmniScript(source) {
-        // 1. Replace keywords
         let js = source;
         for (let [omni, std] of Object.entries(keywordMap)) {
             js = js.replace(new RegExp(`\\b${omni}\\b`, 'g'), std);
         }
-
-        // 2. Convert 'component' to a function that returns a component
         js = js.replace(/^component\s+(\w+)\s*\(/gm, 'function $1(');
 
-        // 3. Indentation to braces (more robust)
         const lines = js.split('\n');
         const out = [];
-        let indentStack = [0];   // current indentation level (spaces count)
+        let indentStack = [0];
         let i = 0;
         while (i < lines.length) {
             let line = lines[i];
@@ -41,53 +39,37 @@
                 i++;
                 continue;
             }
-
-            // Calculate indentation (number of leading spaces/tabs, tabs = 4 spaces)
             let indent = 0;
             for (let ch of line) {
                 if (ch === ' ') indent++;
                 else if (ch === '\t') indent += 4;
                 else break;
             }
-
             const trimmed = line.trim();
             const currentIndent = indentStack[indentStack.length - 1];
-
-            // Handle block end: when indentation decreases
             if (indent < currentIndent) {
-                // Close one or more blocks
                 while (indent < indentStack[indentStack.length - 1]) {
                     indentStack.pop();
                     out.push('}');
                 }
-                // After closing, we need to re-evaluate the same line because it might still need closing?
-                // Actually, we should not push the line yet; continue loop without increment i
                 continue;
             }
-
-            // Handle block start: when indentation increases
             if (indent > currentIndent) {
-                // Increase stack and add opening brace before the line
                 indentStack.push(indent);
                 out.push('{');
             }
-
-            // Remove trailing colon if present (block indicator)
             let processed = line.replace(/:\s*$/, '');
             out.push(processed);
             i++;
         }
-
-        // Close any remaining open blocks
         while (indentStack.length > 1) {
             out.push('}');
             indentStack.pop();
         }
-
         return out.join('\n');
     }
 
-    // --- Component System (unchanged, but ensure it's complete) ---
+    // --- Component System (unchanged) ---
     let currentComponentId = 0;
     function createComponent(renderFn, props = {}) {
         const id = currentComponentId++;
@@ -113,7 +95,6 @@
                     styleTag.textContent = scopedStyles;
                     domNode.appendChild(styleTag);
                 }
-                // attach events
                 for (let el of domNode.querySelectorAll('*')) {
                     for (let attr of el.attributes) {
                         if (attr.name.startsWith('on')) {
@@ -145,7 +126,7 @@
     }
     window.__flux_component = (renderFn, props) => createComponent(renderFn, props);
 
-    // --- Runtime API ---
+    // --- Runtime API (unchanged) ---
     let previewTarget = null;
     function setPreviewTarget(selector) {
         previewTarget = document.querySelector(selector);
@@ -191,7 +172,7 @@
         document.head.appendChild(styleTag);
     }
 
-    // --- Module loader (simplified) ---
+    // --- Module loader (unchanged) ---
     async function loadModule(url) {
         if (!url.includes('.')) url += '.flux';
         const res = await fetch(url);
@@ -203,22 +184,37 @@
     }
     window.gather = loadModule;
 
-    // --- Execute all Flux scripts ---
+    // --- Execute all <connect> tags (instead of script) ---
     function runOmniScripts() {
-        document.querySelectorAll('script[type="text/omnilingua"]').forEach(async script => {
-            let src = script.src ? await (await fetch(script.src)).text() : script.textContent;
-            const js = compileOmniScript(src);
+        // Find all <connect> elements (custom tag)
+        const connectTags = document.querySelectorAll('connect');
+        connectTags.forEach(async (tag) => {
+            let source;
+            if (tag.hasAttribute('src')) {
+                // Load external .flux file (note: requires HTTP server)
+                const response = await fetch(tag.getAttribute('src'));
+                source = await response.text();
+            } else {
+                // Inline code inside <connect> tag
+                source = tag.textContent;
+            }
+            const jsCode = compileOmniScript(source);
             try {
-                eval(js);
+                eval(jsCode);
             } catch(e) {
                 console.error('Flux compilation error:', e);
-                console.error('Generated JS:\n', js);
+                console.error('Generated JS:', jsCode);
             }
         });
     }
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', runOmniScripts);
-    else runOmniScripts();
 
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', runOmniScripts);
+    } else {
+        runOmniScripts();
+    }
+
+    // Expose API globally
     window.setPreviewTarget = setPreviewTarget;
     window.render = render;
     window.display = display;
