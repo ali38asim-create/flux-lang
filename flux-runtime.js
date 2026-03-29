@@ -1,4 +1,5 @@
 // fluxruntime.js - OmniScript runtime v2.1 (fixed indentation handling)
+//v2.1.0
 (function() {
     // --- Keyword mapping ---
     const keywordMap = {
